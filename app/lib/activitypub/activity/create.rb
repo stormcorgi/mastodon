@@ -54,7 +54,13 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
       @status = Status.create!(@params)
       attach_tags(@status)
       attach_mentions(@status)
+      if like_a_spam?
+        @status = nil
+        raise ActiveRecord::Rollback
+      end
     end
+
+    return if @status.nil?
 
     resolve_thread(@status)
     resolve_unresolved_mentions(@status)
@@ -427,4 +433,16 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     poll.reload
     retry
   end
+  SPAM_FILTER_MINIMUM_FOLLOWERS = ENV.fetch('SPAM_FILTER_MINIMUM_FOLLOWERS', 3).to_i
+  SPAM_FILTER_MINIMUM_CREATE_DAYS = ENV.fetch('SPAM_FILTER_MINIMUM_CREATE_DAYS', 5).to_i
+  SPAM_FILTER_MINIMUM_MENTIONS = ENV.fetch('SPAM_FILTER_MINIMUM_MENTIONS', 1).to_i
+  def like_a_spam?
+    (
+      !@status.account.local? &&
+      @status.account.followers_count <= SPAM_FILTER_MINIMUM_FOLLOWERS &&
+      @status.account.created_at > SPAM_FILTER_MINIMUM_CREATE_DAYS.day.ago &&
+      @mentions.count > SPAM_FILTER_MINIMUM_MENTIONS
+    )
+  end
+
 end
